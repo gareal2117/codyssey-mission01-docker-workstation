@@ -4,7 +4,7 @@
 
 개발 워크스테이션 구축 미션을 수행하며 터미널 조작, Linux 권한, Docker 컨테이너, 네트워크 포트, 스토리지와 Git의 기본 사용법을 실습한 프로젝트입니다.
 
-개발은 Windows에서 진행했습니다. 프로젝트 내부 파일은 상대경로로 참조하고 웹 서버는 Docker 이미지로 구성하여, 추후 macOS와 OrbStack 환경에서도 같은 방식으로 재현할 수 있도록 했습니다. macOS 및 OrbStack에서의 실제 재현 검증은 아직 수행하지 않았습니다.
+개발과 실행 검증은 Windows Docker Desktop에서 진행했습니다. 프로젝트 내부 파일은 상대경로로 참조하고 웹 서버는 Docker 이미지로 구성하여 호스트 절대경로에 의존하지 않도록 했습니다.
 
 ## 2. 실행 환경
 
@@ -15,7 +15,6 @@
 | Container runtime | Docker Desktop |
 | Docker | Docker version 29.5.2 |
 | Git | Git version 2.54.0.windows.1 |
-| 추후 검증 환경 | macOS + OrbStack (재현 예정) |
 
 버전 확인에 사용한 명령은 다음과 같습니다.
 
@@ -36,8 +35,7 @@ git --version
 - [x] 바인드 마운트
 - [x] Docker Volume
 - [x] Git 설정
-- [ ] GitHub 연동 (미완료)
-- [ ] macOS + OrbStack 재현 검증 (예정)
+- [x] GitHub 원격 저장소 연동 및 push
 
 ### 3.1 터미널 기본 조작 로그
 
@@ -408,7 +406,7 @@ git config --global init.defaultBranch main
 git init
 ```
 
-로컬 Git 저장소 초기화까지 완료했습니다. GitHub 원격 저장소 연결 및 업로드는 아직 완료하지 않았습니다.
+로컬 Git 저장소를 초기화한 뒤 GitHub 원격 저장소를 연결하고 `main` 브랜치를 push했습니다.
 
 ### 12.1 Git 설정 검증 로그
 
@@ -422,44 +420,51 @@ git config --list
 user.name=<사용자 이름 마스킹>
 user.email=<이메일 주소 마스킹>
 init.defaultbranch=main
-core.repositoryformatversion=0
-core.filemode=false
-core.bare=false
 ```
 
 전체 출력 중 과제 검증에 필요한 핵심 설정만 발췌했으며, 실제 사용자 이름과 이메일 주소는 노출하지 않고 마스킹했습니다. 실제 출력에는 설정 범위에 따라 `init.defaultbranch=master`와 `init.defaultbranch=main`이 모두 존재했지만, 현재 설정한 기본 브랜치가 `main`임을 확인했습니다.
 
-### 12.2 GitHub 및 VS Code 연동 (미완료)
+### 12.2 GitHub 및 VS Code 연동
 
-- [ ] GitHub 원격 저장소 생성 또는 연결
-- [ ] 로컬 커밋을 GitHub에 push
-- [ ] VS Code에서 Git/GitHub 연동 상태 확인
-- [ ] 실제 연동 명령과 출력 결과 추가
-- [ ] 연동 증거 스크린샷 추가
+GitHub Repository: [gareal2117/codyssey-mission01-docker-workstation](https://github.com/gareal2117/codyssey-mission01-docker-workstation)
 
-현재 GitHub 및 VS Code 연동은 실제로 수행하지 않았으므로 완료로 처리하지 않습니다. 추후 연동을 마친 뒤 아래 자리에 실제 명령과 출력 결과를 기록하고 증거 이미지를 추가할 예정입니다.
+로컬 저장소에 GitHub 원격 저장소를 등록하고 연결 정보를 확인한 뒤 `main` 브랜치를 push했습니다.
 
 ```powershell
-# TODO: 실제로 수행한 GitHub/VS Code 연동 명령 입력
+git remote add origin https://github.com/gareal2117/codyssey-mission01-docker-workstation.git
+git remote -v
+git push -u origin main
 ```
+
+`git remote -v` 확인 결과:
 
 ```text
-TODO: 실제 출력 결과 입력
+origin  https://github.com/gareal2117/codyssey-mission01-docker-workstation.git (fetch)
+origin  https://github.com/gareal2117/codyssey-mission01-docker-workstation.git (push)
 ```
 
-<!-- TODO: 실제 연동 후 증거 스크린샷 Markdown 링크 추가 -->
+push 결과:
+
+```text
+main -> main push 성공
+local main branch가 origin/main을 tracking하도록 설정됨
+```
+
+VS Code의 Source Control 화면에서도 현재 프로젝트가 Git으로 관리되고 있으며 `main` 브랜치를 사용하고 있음을 확인했습니다.
+
+![GitHub 및 VS Code 연동 증거](./screenshots/github-vscode-integration.PNG)
 
 ## 13. 재현 방법
 
 저장소를 clone한 후 프로젝트 루트로 이동하여 다음 명령을 실행합니다.
 
 ```powershell
-git clone <저장소 URL>
-cd docker-workstation
+git clone https://github.com/gareal2117/codyssey-mission01-docker-workstation.git
+cd codyssey-mission01-docker-workstation
 docker build -t docker-workstation:1.0 .
 docker run -d -p 8000:80 --name docker-web docker-workstation:1.0
 ```
 
 브라우저에서 `http://localhost:8000`에 접속하면 정적 웹페이지를 확인할 수 있습니다.
 
-Dockerfile의 `COPY app/ /usr/share/nginx/html/`은 Docker 빌드 컨텍스트를 기준으로 한 상대경로를 사용합니다. 따라서 `C:\...` 같은 Windows 호스트 절대경로에 의존하지 않으며, Windows Docker Desktop과 macOS OrbStack에서 동일한 Dockerfile을 사용할 수 있도록 구성했습니다. 다만 macOS와 OrbStack에서의 실제 실행 검증은 추후 수행할 예정입니다.
+실행 검증은 Windows Docker Desktop에서 수행했습니다. Dockerfile의 `COPY app/ /usr/share/nginx/html/`은 Docker 빌드 컨텍스트 기준 상대경로를 사용하므로 `C:\...` 같은 호스트 절대경로에 의존하지 않습니다.
