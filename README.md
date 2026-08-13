@@ -216,6 +216,22 @@ docker-bind   0.00%    약 10.19 MiB
 docker-web    0.00%    약 15.04 MiB
 ```
 
+#### 컨테이너 중지 및 삭제
+
+실행 중인 컨테이너를 중지하고 상태 변화를 확인한 뒤 삭제했습니다.
+
+```powershell
+docker run -d --name stop-test ubuntu sleep infinity
+docker ps
+docker stop stop-test
+docker ps -a
+docker rm stop-test
+```
+
+실행 직후 `docker ps`에서 `stop-test`가 `Up` 상태인 것을 확인했습니다. `docker stop stop-test` 실행 후에는 `docker ps -a`에서 `Exited` 상태로 표시되었습니다.
+
+`docker stop`은 컨테이너의 실행을 중지하지만 컨테이너 자체를 바로 삭제하지는 않습니다. 따라서 중지된 컨테이너도 `docker ps -a`에서 확인할 수 있으며, 더 이상 필요하지 않을 때 `docker rm stop-test`로 삭제했습니다.
+
 ## 5. Ubuntu 컨테이너 실습
 
 Ubuntu 컨테이너를 대화형 셸로 실행한 뒤 현재 경로와 디렉터리 내용을 확인하고, 문자열을 출력한 후 종료했습니다.
@@ -231,6 +247,47 @@ pwd
 ls
 echo "hello ubuntu"
 exit
+```
+
+### 5.1 `docker run`과 `docker exec`의 종료 차이
+
+실행 상태를 유지하는 Ubuntu 컨테이너를 만든 뒤 `docker exec`로 추가 bash 프로세스를 실행했습니다.
+
+```powershell
+docker run -d --name exec-test ubuntu sleep infinity
+docker ps
+docker exec -it exec-test bash
+```
+
+컨테이너 내부에서 다음 명령을 실행하고 bash를 종료했습니다.
+
+```bash
+echo "exec test"
+exit
+```
+
+출력:
+
+```text
+exec test
+```
+
+이후 상태를 다시 확인했습니다.
+
+```powershell
+docker ps
+```
+
+`exec-test`가 계속 `Up` 상태인 것을 확인했습니다.
+
+- `docker run -it ubuntu bash`에서는 bash가 컨테이너의 메인 프로세스입니다. bash에서 `exit`하면 메인 프로세스가 끝나므로 컨테이너도 종료됩니다.
+- `docker run -d ... sleep infinity`에서는 `sleep infinity`가 메인 프로세스입니다. `docker exec`로 추가 실행한 bash에서 `exit`해도 메인 프로세스는 계속 실행되므로 컨테이너는 `Up` 상태를 유지합니다.
+- `docker exec`는 이미 실행 중인 컨테이너 안에서 추가 명령이나 프로세스를 실행하는 명령입니다.
+
+실습 후 컨테이너를 정리했습니다.
+
+```powershell
+docker rm -f exec-test
 ```
 
 ## 6. 커스텀 웹 서버
@@ -476,6 +533,8 @@ GitHub Repository: [gareal2117/codyssey-mission01-docker-workstation](https://gi
 
 로컬 저장소에 GitHub 원격 저장소를 등록하고 연결 정보를 확인한 뒤 `main` 브랜치를 push했습니다.
 
+최초 GitHub 연결에는 HTTPS remote를 사용했으며, 이후 보너스 과제 14.5에서 origin을 SSH 방식으로 변경했습니다.
+
 ```powershell
 git remote add origin https://github.com/gareal2117/codyssey-mission01-docker-workstation.git
 git remote -v
@@ -515,6 +574,16 @@ docker run -d -p 8000:80 --name docker-web docker-workstation:1.0
 
 실행 검증은 Windows Docker Desktop에서 수행했습니다. Dockerfile의 `COPY app/ /usr/share/nginx/html/`은 Docker 빌드 컨텍스트 기준 상대경로를 사용하므로 `C:\...` 같은 호스트 절대경로에 의존하지 않습니다.
 
+### 13.1 핵심 개념 정리
+
+| 개념 | 차이 |
+| --- | --- |
+| 절대경로 vs 상대경로 | 절대경로는 드라이브나 루트부터 시작하는 전체 위치이고, 상대경로는 현재 위치를 기준으로 합니다. 이 프로젝트의 Dockerfile은 호스트별 절대경로 대신 프로젝트 기준 상대경로를 사용합니다. |
+| Docker 이미지 vs 컨테이너 | 이미지는 컨테이너를 만들기 위한 읽기 전용 실행 설계도이고, 컨테이너는 그 이미지로 생성되어 실제로 실행되거나 중지되는 인스턴스입니다. |
+| `docker run` vs `docker exec` | `run`은 이미지에서 새 컨테이너를 만들고 실행하며, `exec`는 이미 실행 중인 컨테이너 안에서 추가 명령을 실행합니다. |
+| bind mount vs Docker Volume | bind mount는 호스트의 특정 파일·폴더를 직접 연결하고, Volume은 Docker가 관리하는 저장 공간을 연결합니다. 둘 다 컨테이너 밖에 데이터를 유지할 수 있지만 관리 주체와 위치가 다릅니다. |
+| Git vs GitHub | Git은 로컬에서 버전 이력을 관리하는 도구이고, GitHub는 Git 저장소를 원격으로 호스팅하여 백업과 공유·협업을 지원하는 서비스입니다. |
+
 ## 14. 보너스 과제
 
 보너스 과제에서는 기존 Dockerfile과 정적 웹페이지를 재사용하여 Docker Compose 구성, 멀티 컨테이너 통신, 운영 명령, 환경 변수 전달과 GitHub SSH 인증을 실습했습니다.
@@ -543,13 +612,22 @@ docker compose up -d
 docker compose ps
 ```
 
+전체 구성 검증 후 `web` 서비스만 지정하여 실행하는 방법도 확인했습니다.
+
+```powershell
+docker compose up -d web
+docker compose ps
+docker compose down
+```
+
 #### 실제 확인 결과
 
 - `compose.yaml` 문법 검증에 성공했습니다.
 - `docker-workstation-web` 이미지 빌드에 성공했습니다.
 - `docker-workstation_default` 네트워크가 생성되었습니다.
-- `docker-workstation-web-1`과 `docker-workstation-helper-1`이 모두 `Up` 상태였습니다.
+- 전체 구성인 `docker compose up -d` 실행 결과, `docker-workstation-web-1`과 `docker-workstation-helper-1`이 모두 `Up` 상태였습니다.
 - `web` 서비스는 호스트 `8003`번 포트에서 컨테이너 `80`번 포트로 연결되었습니다.
+- 이와 별도로 `docker compose up -d web`을 실행해 `web` 서비스만 실행되는 상태를 확인한 뒤 `docker compose down`으로 정리했습니다. 이를 통해 Compose에서 단일 서비스를 선택해 실행할 수 있음을 검증했습니다.
 
 ```text
 docker-workstation-web-1       Up    8003 -> 80
@@ -588,7 +666,7 @@ docker compose exec helper wget -qO- http://web/
 `helper` 컨테이너에서 서비스 이름 `web`으로 HTTP 요청을 보냈고, `app/index.html`의 전체 HTML이 정상적으로 반환되었습니다. 반환된 HTML에서 다음 제목도 확인했습니다.
 
 ```html
-<h1>Docker Workstation</h1>
+<h1>Docker Workstation - Bind Mount Test</h1>
 ```
 
 - `helper -> web` 컨테이너 간 HTTP 통신 성공
@@ -696,9 +774,30 @@ changed-compose
 
 `.env`의 `WORKSTATION_MESSAGE` 값을 변경하고 `--force-recreate`로 `web` 서비스를 재생성하면, 변경된 환경 변수가 컨테이너에 전달되는 것을 확인했습니다.
 
+호스트 공개 포트 변경도 검증했습니다. 기존 `WEB_PORT=8003`을 사용한 뒤 `.env` 값을 다음과 같이 변경했습니다.
+
+```dotenv
+WEB_PORT=8004
+```
+
+`web` 서비스만 실행하고 포트 매핑을 확인했습니다.
+
+```powershell
+docker compose up -d web
+docker compose ps
+```
+
+실제 확인 결과:
+
+```text
+web    Up    8004 -> 80
+```
+
+호스트 `8004`번 포트가 컨테이너 `80`번 포트로 연결된 것을 확인했고, 브라우저에서 `http://localhost:8004`에 접속하여 기존 Docker Workstation 웹페이지가 정상적으로 표시되는 것도 확인했습니다. Docker 이미지나 웹페이지 코드를 수정하지 않고 `.env` 설정만 변경하여 호스트 공개 포트를 바꿀 수 있었습니다.
+
 #### 배운 점
 
-Compose를 사용하면 이미지나 HTML 파일을 수정하지 않고 실행 설정을 컨테이너에 전달할 수 있습니다. 이미 실행 중인 컨테이너에 변경된 환경 변수를 적용하려면 서비스를 재생성해야 합니다. 비밀번호나 토큰 같은 민감정보는 README와 `.env.example`에 기록하지 않아야 합니다.
+Compose를 사용하면 이미지나 HTML 파일을 수정하지 않고 환경 변수와 호스트 공개 포트 같은 실행 설정을 바꿀 수 있습니다. 이미 실행 중인 컨테이너에 변경된 환경 변수를 적용하려면 서비스를 재생성해야 합니다. 비밀번호나 토큰 같은 민감정보는 README와 `.env.example`에 기록하지 않아야 합니다.
 
 ### 14.5 GitHub SSH 키 설정
 
