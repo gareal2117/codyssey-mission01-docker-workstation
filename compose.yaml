@@ -1,0 +1,16 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PORT:-8003}:80"
+    environment:
+      WORKSTATION_MESSAGE: "${WORKSTATION_MESSAGE:-hello-compose}"
+
+  helper:
+    image: alpine:3.22
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    depends_on:
+      - web
+

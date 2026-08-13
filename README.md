@@ -514,3 +514,244 @@ docker run -d -p 8000:80 --name docker-web docker-workstation:1.0
 브라우저에서 `http://localhost:8000`에 접속하면 정적 웹페이지를 확인할 수 있습니다.
 
 실행 검증은 Windows Docker Desktop에서 수행했습니다. Dockerfile의 `COPY app/ /usr/share/nginx/html/`은 Docker 빌드 컨텍스트 기준 상대경로를 사용하므로 `C:\...` 같은 호스트 절대경로에 의존하지 않습니다.
+
+## 14. 보너스 과제
+
+보너스 과제에서는 기존 Dockerfile과 정적 웹페이지를 재사용하여 Docker Compose 구성, 멀티 컨테이너 통신, 운영 명령, 환경 변수 전달과 GitHub SSH 인증을 실습했습니다.
+
+### 14.1 Docker Compose 기초
+
+#### 개념
+
+Docker Compose는 컨테이너의 이미지, 빌드 방법, 포트, 환경 변수와 서비스 관계를 하나의 YAML 파일로 정의하고 프로젝트 단위로 관리하는 도구입니다. 옵션을 매번 입력하는 `docker run`과 달리 Compose는 실행 구성을 `compose.yaml`에 보관하므로 같은 환경을 반복해서 만들기 쉽습니다.
+
+#### 구성/설정
+
+- `services`: Compose가 관리하는 서비스 목록
+- `web`: 기존 Dockerfile로 nginx 웹 이미지를 빌드하는 서비스
+- `helper`: 서비스 간 통신을 확인하는 Alpine Linux 보조 서비스
+- `build`: 프로젝트 루트를 빌드 컨텍스트로 사용하고 기존 Dockerfile을 지정
+- `ports`: `.env`의 `WEB_PORT=8003`을 nginx의 `80`번 포트에 연결
+- `environment`: `WORKSTATION_MESSAGE`를 `web` 컨테이너에 전달
+
+#### 실제 실행 명령
+
+```powershell
+Copy-Item .env.example .env
+docker compose config
+docker compose up -d
+docker compose ps
+```
+
+#### 실제 확인 결과
+
+- `compose.yaml` 문법 검증에 성공했습니다.
+- `docker-workstation-web` 이미지 빌드에 성공했습니다.
+- `docker-workstation_default` 네트워크가 생성되었습니다.
+- `docker-workstation-web-1`과 `docker-workstation-helper-1`이 모두 `Up` 상태였습니다.
+- `web` 서비스는 호스트 `8003`번 포트에서 컨테이너 `80`번 포트로 연결되었습니다.
+
+```text
+docker-workstation-web-1       Up    8003 -> 80
+docker-workstation-helper-1    Up
+```
+
+#### 배운 점
+
+Compose 파일에 실행 설정을 기록하면 이미지 빌드, 네트워크 생성과 여러 서비스 시작을 하나의 명령으로 반복할 수 있습니다.
+
+### 14.2 Docker Compose 멀티 컨테이너
+
+#### 개념
+
+멀티 컨테이너 구성은 역할이 다른 둘 이상의 컨테이너를 함께 실행하는 방식입니다. Compose는 별도 네트워크를 지정하지 않아도 프로젝트 전용 기본 네트워크를 만들고 같은 프로젝트의 서비스를 연결합니다.
+
+같은 네트워크에서는 Compose 내장 DNS가 서비스 이름을 컨테이너 주소로 해석합니다. 이를 서비스 디스커버리(service discovery)라고 하며, 고정 IP나 `localhost` 대신 서비스 이름 `web`을 hostname처럼 사용할 수 있습니다.
+
+#### 구성/설정
+
+- `web`: 기존 nginx 정적 웹 서버
+- `helper`: `web`에 HTTP 요청을 보내는 보조 컨테이너
+- 공통 네트워크: `docker-workstation_default`
+- 통신 대상: `http://web/`
+
+컨테이너 안에서 `localhost`는 그 컨테이너 자신을 뜻하므로, `helper`에서 nginx에 접근할 때는 Compose 서비스 이름 `web`을 사용합니다.
+
+#### 실제 실행 명령
+
+```powershell
+docker compose exec helper wget -qO- http://web/
+```
+
+#### 실제 확인 결과
+
+`helper` 컨테이너에서 서비스 이름 `web`으로 HTTP 요청을 보냈고, `app/index.html`의 전체 HTML이 정상적으로 반환되었습니다. 반환된 HTML에서 다음 제목도 확인했습니다.
+
+```html
+<h1>Docker Workstation</h1>
+```
+
+- `helper -> web` 컨테이너 간 HTTP 통신 성공
+- 두 서비스가 동일한 Compose 기본 네트워크에 연결됨
+- 서비스 이름 `web`을 hostname처럼 사용 가능
+- Compose 서비스 디스커버리 정상 작동
+
+#### 배운 점
+
+Compose 네트워크에서는 변경될 수 있는 컨테이너 IP를 직접 관리하지 않고 서비스 이름으로 다른 컨테이너에 접근할 수 있습니다.
+
+### 14.3 Compose 운영 명령어
+
+#### 개념
+
+Compose 운영 명령은 여러 컨테이너를 프로젝트 단위로 시작하고, 상태와 로그를 확인하고, 실습이 끝난 환경을 정리하는 데 사용합니다.
+
+#### 구성/설정
+
+| 명령 | 역할 | 확인 대상 |
+| --- | --- | --- |
+| `docker compose up -d` | 서비스를 백그라운드에서 실행 | `web`, `helper` 시작 여부 |
+| `docker compose ps` | 컨테이너 상태와 포트 표시 | `Up` 상태와 포트 매핑 |
+| `docker compose logs web helper` | 두 서비스의 로그 출력 | nginx 시작 및 HTTP 요청 처리 |
+| `docker compose down` | 컨테이너와 기본 네트워크 제거 | 서비스와 네트워크 정리 여부 |
+
+#### 실제 실행 명령
+
+```powershell
+docker compose up -d
+docker compose ps
+docker compose logs web helper
+docker compose down
+docker compose ps
+```
+
+#### 실제 확인 결과
+
+- `up -d`: `web`과 `helper`가 백그라운드에서 실행되었습니다.
+- 첫 번째 `ps`: 두 서비스가 모두 `Up` 상태였습니다.
+- `logs`: nginx 시작 로그와 `helper`가 보낸 요청의 처리 로그를 확인했습니다.
+- nginx 로그에서 `GET / HTTP/1.1` 요청이 `200` 응답으로 처리되었습니다.
+- `down`: 두 컨테이너와 `docker-workstation_default` 네트워크가 제거되었습니다.
+- 두 번째 `ps`: 출력 목록이 비어 있어 Compose 서비스가 정리된 것을 확인했습니다.
+
+```text
+GET / HTTP/1.1 -> 200
+```
+
+#### 배운 점
+
+`up`, `ps`, `logs`, `down`으로 실행부터 상태 확인, 요청 검증과 정리까지 Compose 프로젝트의 생명주기를 일관되게 관리할 수 있습니다.
+
+### 14.4 환경 변수 활용
+
+#### 개념
+
+환경 변수는 컨테이너 실행 시 외부에서 전달하는 설정값입니다. 설정을 이미지나 코드에 직접 고정하지 않으면 같은 이미지에 환경별 값을 전달할 수 있어 코드와 설정을 분리할 수 있습니다.
+
+#### 구성/설정
+
+비민감 예제값이 들어 있는 `.env.example`을 로컬 `.env`로 복사해 사용했습니다.
+
+```dotenv
+WEB_PORT=8003
+WORKSTATION_MESSAGE=hello-compose
+```
+
+Compose는 프로젝트 루트의 `.env`를 읽고 `WORKSTATION_MESSAGE` 값을 `web` 서비스의 환경 변수로 전달합니다. 로컬 `.env`는 `.gitignore`로 제외하며 공개 가능한 예제만 `.env.example`에 보관합니다.
+
+#### 실제 실행 명령
+
+```powershell
+Copy-Item .env.example .env
+docker compose up -d
+docker compose exec web printenv WORKSTATION_MESSAGE
+```
+
+초기값 확인 후 `.env`의 설정을 다음과 같이 변경했습니다.
+
+```dotenv
+WORKSTATION_MESSAGE=changed-compose
+```
+
+변경된 환경 변수가 적용되도록 `web` 서비스를 재생성한 뒤 값을 다시 확인했습니다.
+
+```powershell
+docker compose up -d --force-recreate web
+docker compose exec web printenv WORKSTATION_MESSAGE
+```
+
+#### 실제 확인 결과
+
+```text
+hello-compose
+```
+
+`.env`의 값이 Compose를 거쳐 `web` 컨테이너의 환경 변수로 전달된 것을 확인했습니다.
+
+환경 변수 변경 후 실제 확인 결과:
+
+```text
+changed-compose
+```
+
+`.env`의 `WORKSTATION_MESSAGE` 값을 변경하고 `--force-recreate`로 `web` 서비스를 재생성하면, 변경된 환경 변수가 컨테이너에 전달되는 것을 확인했습니다.
+
+#### 배운 점
+
+Compose를 사용하면 이미지나 HTML 파일을 수정하지 않고 실행 설정을 컨테이너에 전달할 수 있습니다. 이미 실행 중인 컨테이너에 변경된 환경 변수를 적용하려면 서비스를 재생성해야 합니다. 비밀번호나 토큰 같은 민감정보는 README와 `.env.example`에 기록하지 않아야 합니다.
+
+### 14.5 GitHub SSH 키 설정
+
+#### 개념
+
+SSH 키 인증은 서로 짝을 이루는 private key와 public key를 사용합니다.
+
+- `id_ed25519`: private key이며 사용자 PC에만 보관해야 합니다. 절대 공개하거나 Git에 추가하면 안 됩니다.
+- `id_ed25519.pub`: public key이며 GitHub 계정의 **SSH and GPG keys**에 등록합니다.
+
+GitHub는 등록된 public key와 로컬 private key의 관계를 확인하여 사용자를 인증합니다. 두 키의 실제 문자열은 README에 기록하지 않았습니다.
+
+#### 구성/설정
+
+처음 `~/.ssh` 경로를 확인했을 때 디렉터리가 존재하지 않았습니다. Ed25519 키를 생성한 뒤 다음 파일이 만들어진 것을 확인했습니다.
+
+```text
+~/.ssh/id_ed25519
+~/.ssh/id_ed25519.pub
+```
+
+public key만 GitHub의 **SSH and GPG keys**에 등록했습니다. private key, passphrase, 이메일, 토큰과 실제 public key 문자열은 문서에 포함하지 않았습니다.
+
+#### 실제 실행 명령
+
+```powershell
+Get-ChildItem -Force "$env:USERPROFILE\.ssh"
+ssh-keygen -t ed25519 -C "GitHub"
+ssh -T git@github.com
+git remote set-url origin git@github.com:gareal2117/codyssey-mission01-docker-workstation.git
+git remote -v
+git push origin main
+```
+
+#### 실제 확인 결과
+
+SSH 연결 테스트 결과:
+
+```text
+Hi gareal2117! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+이 메시지는 SSH 인증에는 성공했지만 GitHub가 일반적인 원격 셸 접속 서비스는 제공하지 않는다는 의미입니다. 오류가 아니라 GitHub SSH 인증의 정상 성공 응답입니다.
+
+`git remote -v`에서 fetch와 push 주소가 모두 SSH 형식으로 설정된 것을 확인했습니다.
+
+```text
+origin  git@github.com:gareal2117/codyssey-mission01-docker-workstation.git (fetch)
+origin  git@github.com:gareal2117/codyssey-mission01-docker-workstation.git (push)
+```
+
+SSH key passphrase를 직접 입력한 뒤 `git push origin main`이 정상적으로 수행되었습니다. 변경 사항이 없는 경우 표시되는 `Everything up-to-date`도 push할 새 커밋이 없다는 뜻이며, SSH 인증과 원격 저장소 연결이 정상이라는 결과입니다.
+
+#### 배운 점
+
+GitHub에는 public key만 등록하고 private key와 passphrase는 로컬에서 보호해야 합니다. SSH 연결 테스트 후 원격 주소를 변경하면 인증 문제와 저장소 주소 문제를 단계별로 확인할 수 있습니다.
