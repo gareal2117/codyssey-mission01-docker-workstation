@@ -365,34 +365,80 @@ drwxr-xr-x testdir
 
 ## 11. 트러블슈팅
 
-### 11.1 Docker daemon 연결 오류
+### 11.1 호스트 포트 충돌
 
-- 문제: Docker Desktop이 시작되지 않았고 `docker info` 실행 시 Docker daemon 연결 오류가 발생했습니다.
-- 확인: 설치된 WSL이 오래되어 `wsl --version` 명령을 지원하지 않는 상태였습니다.
-- 해결: 다음 명령으로 WSL을 업데이트했습니다.
+- 문제
 
-```powershell
-wsl --update --web-download
-```
+  기존 `docker-web` 컨테이너가 호스트의 `8000`번 포트를 사용하는 상태에서, 다른 nginx 컨테이너도 같은 포트로 실행하려고 하자 포트 충돌이 발생했습니다.
 
-- 결과: WSL 업데이트 후 Docker Engine이 정상 작동했고 `hello-world` 실행에 성공했습니다.
+  ```powershell
+  docker run -d -p 8000:80 --name port-conflict-test nginx:alpine
+  ```
 
-### 11.2 `docker-web` 컨테이너 이름 충돌
+- 원인 가설
 
-- 문제: `docker-web`이라는 이름으로 새 컨테이너를 실행할 때 이름 충돌이 발생했습니다.
-- 원인: 같은 이름의 컨테이너가 이미 존재했습니다.
-- 확인: 실행 중인 컨테이너뿐 아니라 중지된 컨테이너도 포함해 상태를 확인했습니다.
+  `-p 8000:80`은 호스트의 `8000`번 포트를 컨테이너의 `80`번 포트에 연결한다는 의미입니다. 하나의 호스트 포트는 동시에 여러 컨테이너에 연결할 수 없으므로, 이미 `docker-web`이 사용 중인 `8000`번 포트를 새 컨테이너가 다시 사용할 수 없다고 판단했습니다.
 
-```powershell
-docker ps -a
-```
+- 확인 방법
 
-- 해결: 기존 컨테이너의 상태를 확인한 후 필요하면 재사용했습니다. 새로 생성해야 하는 경우에는 기존 컨테이너를 삭제한 뒤 같은 이름으로 다시 생성할 수 있음을 확인했습니다.
+  실행 중인 컨테이너와 포트 매핑을 확인했습니다.
 
-```powershell
-docker rm -f docker-web
-docker run -d -p 8000:80 --name docker-web docker-workstation:1.0
-```
+  ```powershell
+  docker ps
+  ```
+
+  확인 결과 `docker-web` 컨테이너가 호스트 `8000`번 포트에서 컨테이너 `80`번 포트로 연결된 상태로 실행 중이었습니다.
+
+- 해결 방법
+
+  새 nginx 컨테이너에는 충돌하지 않는 호스트 포트 `8002`를 할당했습니다. 컨테이너 내부의 nginx 포트는 그대로 `80`을 사용했습니다.
+
+  ```powershell
+  docker run -d -p 8002:80 --name port-conflict-test nginx:alpine
+  ```
+
+- 결과
+
+  `docker ps`에서 `port-conflict-test`가 `8002 -> 80` 포트 매핑으로 정상 실행되는 것을 확인했습니다. 테스트가 끝난 뒤 다음 명령으로 컨테이너를 정리했습니다.
+
+  ```powershell
+  docker rm -f port-conflict-test
+  ```
+
+### 11.2 웹 파일 수정 내용이 기존 컨테이너에 반영되지 않음
+
+- 문제
+
+  `app/index.html`을 수정하고 브라우저를 새로고침했지만, 기존 `docker-web` 컨테이너가 제공하는 화면에는 변경 내용이 반영되지 않았습니다.
+
+- 원인 가설
+
+  Dockerfile의 `COPY` 명령은 `docker build`를 실행하는 시점에 `app/`의 파일을 이미지 내부로 복사합니다. 이미지는 컨테이너를 만드는 기준이 되는 고정된 결과물이므로, 이후 호스트의 `index.html`을 수정해도 이전 이미지와 그 이미지로 만든 기존 컨테이너는 자동으로 바뀌지 않습니다.
+
+- 확인 방법
+
+  현재 실행 중인 컨테이너와 로컬에 생성된 이미지를 확인했습니다.
+
+  ```powershell
+  docker ps
+  docker images
+  ```
+
+  확인 결과 기존 `docker-web` 컨테이너가 수정 전에 빌드된 이미지로 계속 실행 중이었습니다.
+
+- 해결 방법
+
+  수정된 웹 파일이 이미지에 포함되도록 이미지를 다시 빌드하고, 기존 컨테이너를 삭제한 뒤 새 이미지로 컨테이너를 다시 생성했습니다.
+
+  ```powershell
+  docker build -t docker-workstation:1.0 .
+  docker rm -f docker-web
+  docker run -d -p 8000:80 --name docker-web docker-workstation:1.0
+  ```
+
+- 결과
+
+  브라우저에서 `http://localhost:8000`을 새로고침한 후 수정된 웹페이지 내용이 표시되는 것을 확인했습니다. 이 과정을 통해 Dockerfile로 복사한 파일을 변경할 때는 이미지 재빌드와 컨테이너 재생성이 필요하다는 점을 확인했습니다.
 
 
 ## 12. Git 설정
